@@ -7,6 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from fastapi import Body
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 from photo_analyzer import analyze_photo
 from google_storage import save_submission, get_map_rows, RAW_TAB, PROCESSED_TAB
@@ -92,3 +95,62 @@ def processed_reports(request: Request):
     except Exception as exc:
         print(f"Processed map read error: {type(exc).__name__}: {exc}")
         raise HTTPException(status_code=503, detail="Could not retrieve processed reports.")
+
+def verify_developer_token(token: str):
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    allowed_emails = {
+        email.strip().lower()
+        for email in os.getenv("DEVELOPER_EMAILS", "").split(",")
+        if email.strip()
+    }
+
+    if not client_id or not allowed_emails:
+        raise HTTPException(
+            status_code=503,
+            detail="Developer login is not configured."
+        )
+
+    try:
+        user = id_token.verify_oauth2_token(
+            token,
+            google_requests.Request(),
+            client_id
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            detail="Google sign-in could not be verified."
+        )
+
+    email = user.get("email", "").lower()
+
+    if not user.get("email_verified") or email not in allowed_emails:
+        raise HTTPException(
+            status_code=403,
+            detail="This Google account is not authorized."
+        )
+
+    return {
+        "email": email,
+        "name": user.get("name", "")
+    }
+
+
+@app.post("/api/auth/google")
+@limiter.limit("10/minute")
+async def google_login(request: Request, payload: dict = Body(...)):
+    credential = payload.get("credential", "")
+
+    if not credential:
+        raise HTTPException(
+            status_code=400,
+            detail="Google credential is missing."
+        )
+
+    developer = verify_developer_token(credential)
+
+    return {
+        "ok": True,
+        "message": "Developer login successful.",
+        "developer": developer
+    }
