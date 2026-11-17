@@ -139,4 +139,60 @@
   });
 
   loadMaps();
+  
+// ------------------------------
+// GOOGLE DEVELOPER SIGN-IN
+// ------------------------------
+
+window.initializeGoogleSignIn = function () {
+    const message = document.getElementById("login-message");
+    const button = document.getElementById("google-signin-button");
+
+    if (!window.google?.accounts?.id || !button) {
+        if (message) {
+            message.textContent = "Google sign-in is loading. Please refresh.";
+        }
+        return;
+    }
+
+    google.accounts.id.initialize({
+        client_id: "722440770618-69mv8p9gvbvou6shcsu0vg0qskee2tfp.apps.googleusercontent.com",
+        callback: async function (response) {
+            if (message) message.textContent = "Verifying administrator access...";
+
+            try {
+                const result = await fetch(`${API}/api/auth/google`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        credential: response.credential
+                    })
+                });
+
+                const data = await result.json();
+
+                if (!result.ok || !data.ok) {
+                    throw new Error(data.detail || "Access denied.");
+                }
+
+                message.textContent =
+                    "Welcome, " + data.developer.email +
+                    ". Google sign-in verified successfully.";
+
+            } catch (error) {
+                message.textContent = error.message;
+            }
+        }
+    });
+
+    google.accounts.id.renderButton(button, {
+        theme: "outline",
+        size: "large",
+        text: "signin_with",
+        shape: "rectangular"
+    });
+};
+
 })();
